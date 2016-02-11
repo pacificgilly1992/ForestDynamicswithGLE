@@ -1,0 +1,148 @@
+############################################################################
+# Project: Forest Dynamics at the 'Woods of the World'
+# Title: Calculation of the fractional light recieved by each stand
+# Author: James Gilmore
+# Email: james.gilmore@pgr.reading.ac.uk.
+# Version: 1.0.0
+# Date: 22/12/15
+# Status: Operational
+############################################################################
+
+#Initialising the python script
+from __future__ import absolute_import, division, print_function
+from scipy.integrate import quad, dblquad
+import matplotlib.pyplot as plt
+from array import array
+import numpy as np
+import time, os, csv, sys
+
+#Define the equitorial coordinate system ##(All Equations Correct)##
+zenith = lambda H, dec, lat: np.arcsin(np.sin(lat)*np.sin(dec)+np.cos(lat)*np.cos(dec)*np.cos(H)) #GOOD
+azimuth = lambda lat, dec, zenith: np.arccos((np.sin(dec)-np.sin(zenith)*np.sin(lat))/(np.cos(zenith)*np.cos(lat))) #GOOD
+dec = lambda Jday: np.arcsin(np.sin(np.radians(-23.44))*np.cos((np.radians(360)/365.24)*(Jday+10)+(np.radians(360)/np.pi)*0.0167*np.sin((np.radians(360)/365.24)*(Jday-2))))*57.2957795 #GOOD
+he = lambda Jday: 0.17*np.sin((4*np.pi*(Jday-80))/373)-0.129*np.sin((2*np.pi*(Jday-8))/355) #GOOD
+gam2 = lambda h: -15*np.floor(h) #GOOD
+gam = lambda h: 15.0*np.floor(h/15.0) #GOOD
+H = lambda hl, gaml, gam, he: (np.pi/12)*(hl-(24*(gaml-gam)/360)+he-12) #GOOD
+td = lambda Jday: (2*np.pi*(np.floor(Jday)-1))/365 #GOOD
+
+#Define the equations specific to the NBGW ##(Equations Correct)##
+SolElvNBGW = lambda h, day: zenith(H(h, np.radians(-4.15176), gam(0), he(day)), np.radians(dec(day)), np.radians(51.83756))*57.2957795
+
+#### Be careful: Put hours in double format (i.e. 3am is 3.0 NOT 3)  ##(Equations Correct)##
+SolAziNBGW = lambda h, day: np.piecewise(h, [h < 12.01854275271367, h >= 12.01854275271366], [lambda h: azimuth(np.radians(51.83756), np.radians(dec(day)), np.radians(SolElvNBGW(h,day)))*57.2957795, lambda h: 360-azimuth(np.radians(51.83756), np.radians(dec(day)), np.radians(SolElvNBGW(h,day)))*57.2957795])
+
+#Dawn and Dusk
+Dawn = lambda day: 11.9952 - 3.81972*np.arccos(1.27249*np.tan(np.arcsin(0.397789*np.cos(0.172029 + 0.0172029*day + 0.0334*np.sin(0.0172029*(-2. + day)))))) - 0.17*np.sin(0.03369*(-80. + day)) + 0.129*np.sin(0.0176991*(-8. + day))
+Dusk = lambda day: 11.9952 + 3.81972*np.arccos(1.27249*np.tan(np.arcsin(0.397789*np.cos(0.172029 + 0.0172029*day + 0.0334*np.sin(0.0172029*(-2. + day)))))) - 0.17*np.sin(0.03369*(-80. + day)) + 0.129*np.sin(0.0176991*(-8. + day))
+
+#Clear Sky and Beam Fraction Coefficients
+
+acoff = lambda w, mp: np.exp(-(0.465+0.134*w)*(0.179+0.421*np.exp(-0.721*mp))*mp)
+mp = lambda A, z: ((288-0.0065*z)/288)**5.256/(np.sin(A)+0.15*(A+3.885)**-1.253)
+w = lambda Tdpt: np.exp(-0.0592+0.06912*Tdpt) #good
+kb = lambda kt: -10.627*kt**5 + 15.307*kt**4 - 5.205*kt**3 + 0.994*kt**2 - 0.059*kt + 0.002
+BeamNBGW = lambda h, day: kb(acoff(w(21), mp(np.radians(SolElvNBGW(h, day)),0)))
+
+#t = np.arange(0., 365., 1)
+#plt.plot(t, BeamNBGW(7,t))
+#plt.show()
+
+#Import the data of the tree set in the correct columnar form:
+X, Y, HE, CH, CW = np.genfromtxt("GillyShadingTIFull.csv", dtype=float, delimiter=',', usecols=(0, 1, 2, 3, 4),  unpack=True, skiprows=1)
+
+############################################################################
+#The Gilly Light Equaton
+
+#The Gilly Shade Criterion Function (GSCF)
+
+RM = lambda x: np.array([[np.cos(x), -np.sin(x)], [np.sin(x),  np.cos(x)]])
+
+def GLE(iter=len(X), daymax=365, hspa=10, nmin=0, nmax=60, omin=0, omax=60, spacings=1):
+	it=0 #iterator counter
+	ts = np.zeros(omax)
+	KMatrix = np.zeros([iter, 2]) 
+	KMatrixCrown = np.zeros([iter, 2]) 
+	KMatrixHeight = np.zeros([iter, 2]) 
+	KMatrixTot = np.zeros(iter)
+	KMatrixTotTot = np.zeros([nmax/spacings,omax/spacings])
+	GillyTop = np.zeros([nmax/spacings,omax/spacings])
+	GillyBottom = np.zeros([nmax/spacings,omax/spacings])
+	GillyLight = np.zeros([nmax/spacings,omax/spacings])
+	tstart = time.time()
+	
+	for day in xrange(daymax):
+		hmax = (Dusk(day)-Dawn(day))/hspa
+		h_day = np.arange(Dawn(day), Dusk(day), hmax)
+		#print("################################################### Length of H: ", len(h_day))
+		for h in xrange(len(h_day)):
+			for o in np.arange(nmin,nmax,spacings):
+					for n in np.arange(omin,omax,spacings):
+						it+=1
+						ts[n] = time.time()
+						os.system('cls' if os.name=='nt' else 'clear')
+						print("Time Progressed (s): ", "%.0f" % (ts[n]-tstart)),
+						print("Time Left (s): ", "%.0f" % ((((omax-omin)*(1/spacings)**2*(nmax-nmin)*hspa*daymax)-it)*((ts[n]-tstart)/it))),
+						print("Percentage Completed: ", "%.2f" % ((1-(((omax-omin)*(1/spacings)**2*(nmax-nmin)*hspa*daymax)-it)/((omax-omin)*(1/spacings)**2*(nmax-nmin)*hspa*daymax))*100), "%")
+						for i in xrange(iter):
+							KMatrixCrown[i] = ([X[i], Y[i]]+np.dot(RM(np.radians(-(SolAziNBGW(float(h_day[h]),day)-210)))/np.tan(SolElvNBGW(h_day[h],day)),[-CW[i]/200,HE[i]])-[n, o])/([X[i], Y[i]]+np.dot(RM(np.radians(-(SolAziNBGW(float(h_day[h]),day)-210)))/np.tan(SolElvNBGW(h_day[h],day)),[-CW[i]/200,HE[i]-CH[i]])-[n, o])
+							for j in xrange(2):
+								if KMatrixCrown[i, j] <= 0:
+									KMatrixCrown[i, j] = 0
+								else:
+									KMatrixCrown[i, j] = 1
+						
+							KMatrixHeight[i] = ([X[i], Y[i]]+np.dot(RM(np.radians(-(SolAziNBGW(float(h_day[h]),day)-210)))/np.tan(SolElvNBGW(h_day[h],day)),[0,HE[i]])-[n, o])/([X[i], Y[i]]+np.dot(RM(np.radians(-(SolAziNBGW(float(h_day[h]),day)-210)))/np.tan(SolElvNBGW(h_day[h],day)),[0,HE[i]-CH[i]])-[n, o])
+							for j in xrange(2):
+								if KMatrixHeight[i, j] <= 0:
+									KMatrixHeight[i, j] = 0
+								else:
+									KMatrixHeight[i, j] = 1
+								
+							KMatrix[i] = KMatrixHeight[i]+KMatrixCrown[i]
+							KMatrixTot[i] = KMatrix[i,0]+KMatrix[i,1]
+						for i in xrange(iter):
+							if KMatrixTot[i] <= 0:
+								KMatrixTot[i] = 0
+							else:
+								KMatrixTot[i] = 1
+						#print("KTotal: ", KMatrixTot.sum())
+						#print("iter", iter)
+						if (iter - 5 - KMatrixTot.sum()) <= 0:
+							print("Hour: ", h_day[h])
+							#print("Day: ", day)
+							#print(BeamNBGW(h_day[h],day))
+							KMatrixTotTot[o,n] = BeamNBGW(h_day[h],day)
+							#print("Dawn(day)", Dawn(day))
+							#print("KMatrixTotTot:", KMatrixTotTot[o,n])
+						else:
+							KMatrixTotTot[o,n] = 0
+						
+						GillyTop[o,n] += KMatrixTotTot[o,n]
+						GillyBottom[o,n] += BeamNBGW(h_day[h],day)
+	
+	for o in np.arange(nmin,nmax,spacings):
+		for n in np.arange(omin,omax,spacings):
+			GillyLight[o,n] = GillyTop[o,n]/GillyBottom[o,n]
+	
+	return GillyLight, daymax, hspa, nmin, nmax, omin, omax, spacings, ts[-1], tstart
+np.set_printoptions(threshold='nan')	
+
+GillyLight, Days, TemporalSpacing, nmin, nmax, omin, omax, SpatialSpacing, tfinal, tstart = GLE(473, 365, 20, 0, 60, 0, 60, 0.5)
+print("\n", GillyLight)
+#GillyLight =  [val for sublist in GillyLight for val in sublist]
+with open("processeddata/GLEOutput.csv", "wb") as output:
+	writer = csv.writer(output, lineterminator='\n')
+	writer.writerows(GillyLight)
+
+os.system('cls' if os.name=='nt' else 'clear')	
+print("Gilly Light Equation Output Information\n")
+print("---------------------------------------------------")
+print("Gilly Light Equation has been solved successfully")
+print("Some final information about this run:")
+print("Days: ", Days)
+print("Temporal Spacing: ", TemporalSpacing, "s")
+print("Spatial Spacing: ", SpatialSpacing, "m")
+print("No. of Grids: ", len(GillyLight))
+print("---------------------------------------------------")
+print("Time taken to solve GLE: ", "%.0f" % (tfinal-tstart), "s")
