@@ -3,8 +3,8 @@
 # Title: Calculation of the fractional light recieved by each stand
 # Author: James Gilmore
 # Email: james.gilmore@pgr.reading.ac.uk.
-# Version: 1.3.0
-# Date: 02/02/16
+# Version: 1.3.1
+# Date: 11/02/16
 # Status: Operational
 ############################################################################
 
@@ -30,9 +30,9 @@ H = lambda hl, gaml, gam, he: (np.pi/12)*(hl-(24*(gaml-gam)/360)+he-12) #GOOD
 td = lambda Jday: (2*np.pi*(np.floor(Jday)-1))/365 #GOOD
 
 #Define the equations specific to the NBGW ##(All Equations Correct)##
+#SolAziNBGW used a definition function rather than lambda method due to issues with older versions of Numpy not recognising the 
+#functions h < 12.01854275271367 etc. Prehaps its meant to be in brackets?
 SolElvNBGW = lambda h, day: zenith(H(h, np.radians(-4.15176), gam(0), he(day)), np.radians(dec(day)), np.radians(51.83756))*57.2957795
-#SolAziNBGW = lambda h, day: np.piecewise(h, [h < 12.01854275271367, h >= 12.01854275271366], [lambda h: azimuth(np.radians(51.83756), np.radians(dec(day)), np.radians(SolElvNBGW(h,day)))*57.2957795, lambda h: 360-azimuth(np.radians(51.83756), np.radians(dec(day)), np.radians(SolElvNBGW(h,day)))*57.2957795])
-
 def SolAziNBGW(h,day):
 	return azimuth(np.radians(51.83756), np.radians(dec(day)), np.radians(SolElvNBGW(h,day)))*57.2957795 if h < 12.01854275271367 else 360-azimuth(np.radians(51.83756), np.radians(dec(day)), np.radians(SolElvNBGW(h,day)))*57.2957795
 
@@ -50,7 +50,7 @@ kb = lambda kt: -10.627*kt**5 + 15.307*kt**4 - 5.205*kt**3 + 0.994*kt**2 - 0.059
 BeamNBGW = lambda h, day: kb(acoff(w(21), mp(np.radians(SolElvNBGW(h, day)),0)))
 ClearNBGW = lambda h, day: 24*(2.044*SolElvNBGW(h, day)+0.12964*SolElvNBGW(h, day)**2-1.941*10**(-3)*SolElvNBGW(h, day)**3+7.591*10**(-6)*SolElvNBGW(h, day)**4)*0.1314
 
-#Rotational Matrix required for positioning of trees and shades
+#Rotational Matrix required for positioning of trees and shade
 RM = lambda x: np.array([[np.cos(x), -np.sin(x)], [np.sin(x),  np.cos(x)]])
 
 #Import the data of the tree set in the correct columnar form (X, Y, Height, Crown Height, Crown Width):
@@ -73,24 +73,23 @@ def GLE(iter=len(X), tree_min=0, tree_max=len(X), daymin=105, daymax=263, hspa=1
 	############################################################################
 	#Initalise the variables for this function
 
-	it=0 #iterator counter
-	treeskip=0 #Number of trees skipped
-	AllTrees=0 #Number of trees processed
-	
-	ts = np.zeros(iter)
-	KMatrix = np.zeros([iter, 2]) 
-	KMatrixCrown = np.zeros([iter, 2]) 
-	KMatrixHeight = np.zeros([iter, 2]) 
-	KMatrixTot = np.zeros(iter)
-	KMatrixTotTot = np.zeros(iter)
-	GillyTop = np.zeros(iter)
-	GillyBottom = np.zeros(iter)
-	GillyLight = np.zeros(iter)
-	npos = np.zeros(iter)
-	opos = np.zeros(iter)
-	tstart = time.time()
-	eps = sys.float_info.epsilon
-	np.set_printoptions(threshold='nan')
+	it=0 					#iterator counter
+	treeskip=0 				#Number of trees skipped
+	AllTrees=0 				#Number of trees processed
+
+	KMatrixCrown = np.zeros([iter, 2]) 	#Determines the shade using the crown of each tree
+	KMatrixHeight = np.zeros([iter, 2]) 	#Determines the shade using the height of each tree
+	KMatrix = np.zeros([iter, 2]) 		#Hold the combintion of KMatrixCrown and KMatrixHeight
+	KMatrixTot = np.zeros(iter)		#Determines if each individual tree is causing shade on specific location (n, o)
+	KMatrixTotTot = np.zeros(iter)		#Combines all tree shading information to determine if any tree at also is cast shadows at (n, o)
+	GillyTop = np.zeros(iter)		#Holds the numerator of the GLE equation
+	GillyBottom = np.zeros(iter)		#Holds the denomiator of the GLE equation
+	GillyLight = np.zeros(iter)		#This will hold the actual fractional light score
+	npos = np.zeros(iter			#Used to define the position of of each tree
+	opos = np.zeros(iter)			#Used to define the position of of each tree
+	tstart = time.time()			#Starts the clock on this massive processing task
+	ts = np.zeros(iter)			#Current time at the current iterator of the equation
+	eps = sys.float_info.epsilon		#Used to minimise the divide by zero errors
 	
 	for i in xrange(iter):
 		npos[i] = X[i]
@@ -128,7 +127,7 @@ def GLE(iter=len(X), tree_min=0, tree_max=len(X), daymin=105, daymax=263, hspa=1
 						KMatrixCrown[i] = (([X[i], Y[i]]+np.dot(RM(-np.radians(SolAziNBGW(float(h_day[h]),day)-210)),[-CW[i]/200,HE[i]])/np.tan(SolElvNBGW(h_day[h],day)))-[npos[n], opos[n]])/(([X[i], Y[i]]+np.dot(RM(-np.radians(SolAziNBGW(float(h_day[h]),day)-210))/np.tan(SolElvNBGW(h_day[h],day)),[CW[i]/200,HE[i]]))-[npos[n], opos[n]])
 						#print(KMatrixCrown[i])
 						for j in xrange(2):
-							if KMatrixCrown[i, j] <= 0: #Try >=0?????????
+							if KMatrixCrown[i, j] <= 0: 
 								KMatrixCrown[i, j] = 0   #Shaded
 							else:
 								KMatrixCrown[i, j] = 1   #NOT Shaded
@@ -152,14 +151,11 @@ def GLE(iter=len(X), tree_min=0, tree_max=len(X), daymin=105, daymax=263, hspa=1
 						KMatrixTot[i] = 0  #Shaded
 					else:
 						KMatrixTot[i] = 1  #NOT Shaded
-				#print(KMatrixTot.sum())
-				#As long as 1 tree had a light value of 0 then we say position n,o was beening shaded from the sun at that specific time.
 				
-				if (iter - KMatrixTot.sum()) <= 0: #############This probably should be 'iter - 2 - KMatrixTot.sum()' rather than '-5' from comparison with Wolfram code
+				#As long as 1 tree had a light value of 0 then we say position n,o was beening shaded from the sun at that specific time.
+				if (iter - KMatrixTot.sum()) <= 0: #############This probably should be 'iter - 2 - KMatrixTot.sum()' from comparison with Wolfram code??
 					KMatrixTotTot[n] = (ClearNBGW(h_day[h],day)+BeamNBGW(h_day[h],day))*1.26
-					#print("NotShade")
 				else:
-					#print("Shade")
 					KMatrixTotTot[n] = 0
 				
 				#Sum up for each time step h and day.
@@ -181,12 +177,9 @@ def GLE(iter=len(X), tree_min=0, tree_max=len(X), daymin=105, daymax=263, hspa=1
 #Solve the GLE with a given input parameters
 
 GillyLight, Days, TemporalSpacing, tfinal, tstart = GLE(474, 420, 474, 105, 263, 120)
-print("\n", GillyLight)
 
 #Save the data of 'GillyLight' to csv file.
-
 ID = np.arange(475)
-
 GillyLight = zip(ID, X, Y, HE, CH, CW, GillyLight)
 
 #Output the data from the Gilly equation to the specified file
@@ -201,7 +194,6 @@ with open("rawdata/GLEOutputTreev5minus_8_log.ini", "wb") as output:
 	writer.writerows(datalog)
 
 #Print out post run information.
-
 os.system('cls' if os.name=='nt' else 'clear')	
 print("Gilly Light Equation Output Information\n")
 print("---------------------------------------------------")
