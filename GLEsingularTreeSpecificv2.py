@@ -85,7 +85,7 @@ def GLE(iter=len(X), tree_min=0, tree_max=len(X), daymin=105, daymax=263, hspa=1
 	GillyTop = np.zeros(iter)		#Holds the numerator of the GLE equation
 	GillyBottom = np.zeros(iter)		#Holds the denomiator of the GLE equation
 	GillyLight = np.zeros(iter)		#This will hold the actual fractional light score
-	npos = np.zeros(iter			#Used to define the position of of each tree
+	npos = np.zeros(iter)			#Used to define the position of of each tree
 	opos = np.zeros(iter)			#Used to define the position of of each tree
 	tstart = time.time()			#Starts the clock on this massive processing task
 	ts = np.zeros(iter)			#Current time at the current iterator of the equation
