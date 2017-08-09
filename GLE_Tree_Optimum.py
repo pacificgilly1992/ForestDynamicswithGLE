@@ -1,5 +1,6 @@
 ############################################################################
 # Project: Forest Dynamics at the 'Woods of the World'
+# Title: Calculation of the fractional light recieved by each stand (MultiProcessing)
 # Author: James Gilmore
 # Email: james.gilmore@pgr.reading.ac.uk.
 # Version: 1.3.4
